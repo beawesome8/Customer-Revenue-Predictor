@@ -1,0 +1,12 @@
+{
+  "baseline_pr_auc": 0.6081,
+  "xgboost": {
+    "pr_auc": 0.7438,
+    "roc_auc": 0.9292
+  },
+  "keras_nn": {
+    "pr_auc": 0.6686,
+    "roc_auc": 0.9055
+  },
+  "winner": "xgboost"
+}
