@@ -110,3 +110,7 @@ API_URL="http://localhost:8000" streamlit run streamlit_app.py
 ## Author
 
 Aman Benjamin Emmanuel — [portfolio](https://beawesome8.github.io) · [GitHub](https://github.com/beawesome8) · [LinkedIn](https://www.linkedin.com/in/beawesome8)
+
+## License
+
+MIT
