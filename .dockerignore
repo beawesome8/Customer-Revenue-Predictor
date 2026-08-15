@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+.git/
+online_shoppers_intention.csv
+archive_v0_notebook.ipynb
+.env
