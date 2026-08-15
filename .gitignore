@@ -5,3 +5,5 @@ __pycache__/
 *.key
 API Key.txt
 .DS_Store
+Output/
+.pytest_cache/
