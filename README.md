@@ -1,10 +1,11 @@
 # Purchase Intent GCP
 
-An XGBoost classifier that predicts whether an e-commerce session will end in a purchase, benchmarked against a logistic regression baseline and a neural network, packaged as a FastAPI service, deployed on Google Cloud Run, backed by a CI/CD gate that retrains and validates the model on every pull request.
+An XGBoost classifier that predicts whether an e-commerce session will end in a purchase, benchmarked against a logistic regression baseline and a neural network, packaged as a FastAPI service, deployed on Google Cloud Run, backed by a CI/CD gate that retrains and validates the model on every pull request, with infrastructure managed as code via Terraform.
 
 **Live demo:** https://purchase-intent-demo-513193518506.europe-west3.run.app
-The link might take 8-10 seconds to load on a cold start, please bear with it.
 **API:** https://purchase-intent-api-513193518506.europe-west3.run.app
+
+> Both services scale to zero when idle (`min-instances=0`) to avoid unnecessary cost. The first request after a period of inactivity may take 5-10 seconds while Cloud Run cold-starts a new instance - this is expected serverless behavior, not a bug.
 
 ![Demo screenshot](docs/demo-screenshot.png)
 
@@ -12,33 +13,35 @@ The link might take 8-10 seconds to load on a cold start, please bear with it.
 
 ## The problem
 
-Predict whether a website session ends in a purchase (`Revenue = True`) using session behavior features (page views, durations, bounce/exit rates, traffic source, visitor type, month) from the [UCI Online Shoppers Purchasing Intention dataset](https://archive.ics.uci.edu/dataset/468/online+shoppers+purchasing+intention+dataset) — 12,330 sessions, 15.5% positive class.
+Predict whether a website session ends in a purchase (`Revenue = True`) using session behavior features (page views, durations, bounce/exit rates, traffic source, visitor type, month) from the [UCI Online Shoppers Purchasing Intention dataset](https://archive.ics.uci.edu/dataset/468/online+shoppers+purchasing+intention+dataset) - 12,330 sessions, 15.5% positive class.
 
-The interesting part of this problem isn't fitting a model — it's handling a real class imbalance honestly, picking a model with evidence instead of a default, and shipping it somewhere a model actually needs to run in production.
+The interesting part of this problem isn't fitting a model - it's handling a real class imbalance honestly, picking a model with evidence instead of a default, and shipping it somewhere a model actually needs to run in production.
 
 ## Model selection: the evidence, not the assumption
 
 | Model | PR-AUC | ROC-AUC |
 |---|---|---|
-| Naive baseline (predict majority class) | 0.155 | — |
+| Naive baseline (predict majority class) | 0.155 | - |
 | Logistic Regression (class-weighted) | 0.6081 | 0.8828 |
-| Keras Neural Network | 0.6686–0.6824 | 0.905–0.907 |
-| **XGBoost (selected)** | **0.7438–0.7469** | **0.929–0.931** |
+| Keras Neural Network | 0.6686-0.6824 | 0.905-0.907 |
+| **XGBoost (selected)** | **0.7438-0.7469** | **0.929-0.931** |
 
-*(PR-AUC — average precision — is the headline metric, not accuracy: with an 84.5%/15.5% class split, a model that always predicts "no purchase" scores 84.5% accuracy while being useless.)*
+*(PR-AUC - average precision - is the headline metric, not accuracy: with an 84.5%/15.5% class split, a model that always predicts "no purchase" scores 84.5% accuracy while being useless.)*
 
-XGBoost was chosen because it beat the neural network by a wide, reproducible margin across two separate machines — not because gradient boosting is the popular default for tabular data. The neural network was fully built, trained, and evaluated specifically so this comparison could be evidence rather than an assumption. It's kept in the repo as a benchmarking-only dependency (`requirements-bench.txt`), separate from the production stack, since it never ships.
+XGBoost was chosen because it beat the neural network by a wide, reproducible margin across two separate machines - not because gradient boosting is the popular default for tabular data. The neural network was fully built, trained, and evaluated specifically so this comparison could be evidence rather than an assumption. It's kept in the repo as a benchmarking-only dependency (`requirements-bench.txt`), separate from the production stack, since it never ships.
 
 ## Architecture
 
 ```
-CSV data → feature pipeline (sklearn ColumnTransformer, cyclical month encoding)
-        → XGBoost training (class-weighted for imbalance)
-        → model artifact (joblib) + manifest (version, eval metrics)
-        → FastAPI service (/predict, /health, /model-info)
-        → Docker container → Cloud Run (europe-west3)
+CSV data -> feature pipeline (sklearn ColumnTransformer, cyclical month encoding)
+        -> XGBoost training (class-weighted for imbalance)
+        -> model artifact (joblib) + manifest (version, eval metrics)
+        -> FastAPI service (/predict, /health, /model-info)
+        -> Docker container -> Cloud Run (europe-west3)
 
-Streamlit demo (separate Cloud Run service) → calls the API over HTTPS
+Streamlit demo (separate Cloud Run service) -> calls the API over HTTPS
+
+Terraform manages: Artifact Registry, both Cloud Run services, IAM bindings
 ```
 
 Two independently deployed Cloud Run services: the prediction API and the interactive demo, talking to each other over a real network boundary, not a shared process.
@@ -47,9 +50,24 @@ Two independently deployed Cloud Run services: the prediction API and the intera
 
 Every pull request triggers a GitHub Actions workflow that:
 1. Runs API contract tests (schema validation, rejects malformed input)
-2. **Retrains XGBoost from scratch and asserts PR-AUC ≥ 0.68** — a floor set with margin below the known-good result (0.7438–0.7469) and above the neural network's result, so it catches both genuine regressions and "accidentally shipped the worse model."
+2. **Retrains XGBoost from scratch and asserts PR-AUC >= 0.68** - a floor set with margin below the known-good result (0.7438-0.7469) and above the neural network's result, so it catches both genuine regressions and "accidentally shipped the worse model."
 
-This isn't a theoretical gate. It was verified by deliberately removing `PageValues` — the single strongest predictor — from the feature pipeline: PR-AUC collapsed to 0.3565 and the build correctly failed. Restored, it passes clean at 0.7469. Same category of gate as [PromptGuard](https://github.com/beawesome8/Prompt-Guard), applied to a classic ML pipeline instead of an LLM one.
+This isn't a theoretical gate. It was verified by deliberately removing `PageValues` - the single strongest predictor - from the feature pipeline: PR-AUC collapsed to 0.3565 and the build correctly failed. Restored, it passes clean at 0.7469. Same category of gate as [PromptGuard](https://github.com/beawesome8/Prompt-Guard), applied to a classic ML pipeline instead of an LLM one.
+
+The gate runs under real branch protection, not just as a workflow that reports pass/fail with no consequence - merges to `main` are blocked unless `test-and-gate` passes, verified with an actual merged pull request.
+
+## Infrastructure as code
+
+Every GCP resource in this project - Artifact Registry, both Cloud Run services, IAM invoker bindings - was originally created manually via `gcloud`, then brought under Terraform management via `terraform import` rather than recreated from scratch. `terraform plan` was reviewed and confirmed as zero-destroy before any `apply`, and the apply itself went through the same branch-protection-gated PR workflow as application code, not a direct push to `main`.
+
+```bash
+cd infra
+terraform init
+terraform plan
+terraform apply
+```
+
+Config lives in `infra/main.tf`, `variables.tf`, `outputs.tf`. `terraform.tfvars` (real project values) is gitignored; `terraform.tfvars.example` shows the expected shape.
 
 ## Repo structure
 
@@ -63,6 +81,7 @@ This isn't a theoretical gate. It was verified by deliberately removing `PageVal
 │       ├── main.py          # FastAPI app
 │       └── schemas.py       # Pydantic request/response contracts
 ├── demo/                    # Streamlit interactive demo (separate Cloud Run service)
+├── infra/                   # Terraform - Artifact Registry, Cloud Run, IAM
 ├── tests/
 │   ├── test_api.py          # API contract tests
 │   └── test_regression_gate.py  # the CI/CD safety gate
@@ -74,7 +93,7 @@ This isn't a theoretical gate. It was verified by deliberately removing `PageVal
 
 ## Development history
 
-Built in explicit, tagged phases — each one verified before the next started:
+Built in explicit, tagged phases - each one verified before the next started:
 
 | Tag | Phase |
 |---|---|
@@ -84,8 +103,10 @@ Built in explicit, tagged phases — each one verified before the next started:
 | `v0.4-gcp-deployed` | Live on Cloud Run |
 | `v0.5-live-demo` | Streamlit demo, second Cloud Run service |
 | `v0.6-cicd-gate` | GitHub Actions regression gate, verified against a real sabotaged run |
+| `v0.7-readme` | Full project documentation |
+| `v0.8-terraform` | Infrastructure as code - manually-created resources imported, zero-destroy plan verified, applied under branch protection |
 
-`archive_v0_notebook.ipynb` is kept in the repo as the original exploratory notebook — no train/test split, no imbalance handling, no evaluation metrics. Kept deliberately, not deleted, as the honest starting point this project was rebuilt from.
+`archive_v0_notebook.ipynb` is kept in the repo as the original exploratory notebook - no train/test split, no imbalance handling, no evaluation metrics. Kept deliberately, not deleted, as the honest starting point this project was rebuilt from.
 
 ## Running locally
 
@@ -105,12 +126,12 @@ API_URL="http://localhost:8000" streamlit run streamlit_app.py
 
 ## Tech stack
 
-**Production:** Python, XGBoost, scikit-learn, FastAPI, Pydantic, Docker, Google Cloud Run, Google Artifact Registry, GitHub Actions
+**Production:** Python, XGBoost, scikit-learn, FastAPI, Pydantic, Docker, Terraform, Google Cloud Run, Google Artifact Registry, GitHub Actions
 **Benchmarking only (not deployed):** TensorFlow/Keras
 
 ## Author
 
-Aman Benjamin Emmanuel — [portfolio](https://beawesome8.github.io) · [GitHub](https://github.com/beawesome8) · [LinkedIn](https://www.linkedin.com/in/beawesome8)
+Aman Benjamin Emmanuel - [portfolio](https://beawesome8.github.io) · [GitHub](https://github.com/beawesome8) · [LinkedIn](https://www.linkedin.com/in/beawesome8)
 
 ## License
 
