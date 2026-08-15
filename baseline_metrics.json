@@ -1,0 +1,8 @@
+{
+  "model": "logistic_regression_baseline",
+  "pr_auc": 0.6081,
+  "roc_auc": 0.8828,
+  "naive_pr_auc_baseline": 0.1549,
+  "test_set_size": 2466,
+  "positive_class_rate": 0.1549
+}
