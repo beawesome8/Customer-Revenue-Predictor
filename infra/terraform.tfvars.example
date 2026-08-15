@@ -1,0 +1,4 @@
+project_id = "project-26e7094e-1f15-4d61-979"
+region     = "europe-west3"
+api_image  = "europe-west3-docker.pkg.dev/project-26e7094e-1f15-4d61-979/purchase-intent-gcp/api:v1.0.1"
+demo_image = "europe-west3-docker.pkg.dev/project-26e7094e-1f15-4d61-979/purchase-intent-gcp/demo:v1.0.0"
