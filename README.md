@@ -3,6 +3,7 @@
 An XGBoost classifier that predicts whether an e-commerce session will end in a purchase, benchmarked against a logistic regression baseline and a neural network, packaged as a FastAPI service, deployed on Google Cloud Run, backed by a CI/CD gate that retrains and validates the model on every pull request.
 
 **Live demo:** https://purchase-intent-demo-513193518506.europe-west3.run.app
+The link might take 8-10 seconds to load on a cold start, please bear with it.
 **API:** https://purchase-intent-api-513193518506.europe-west3.run.app
 
 ![Demo screenshot](docs/demo-screenshot.png)
